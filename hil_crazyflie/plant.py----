@@ -1,0 +1,101 @@
+import math
+import numpy as np
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float64
+
+
+class PlantNode(Node):
+    def __init__(self):
+        super().__init__('plant_node')
+
+        # --- Parameters ---
+        self.DT = 0.01              # 100 Hz
+        self.MASS = 0.029           # kg
+        self.GRAVITY = 9.81         # m/s^2
+        self.MAX_THRUST = 0.6       # N (max total thrust)
+
+        # real-world effects
+        self.DAMP_Z = 3.0           # vertical damping
+        self.Z_NOISE_STD = 0.01     # std deviation
+        self.Z_BIAS = -0.02         # sensor reads 2 cm low
+
+        # --- State ---
+        # state[2] = z position
+        self.state = np.zeros(6, dtype=float)
+        self.vel_z = 0.0
+
+        # current command (normalized 0-1, instead of PWM)
+        self.cmd = 0.5          # hover
+        self.cmd_applied = 0.5  # for motor lag
+        self.motor_tau = 0.08   # motor time constant (80 ms)
+
+        # --- ROS2 interfaces ---
+        # Subscribe to thrust command from controller
+        self.cmd_sub = self.create_subscription(
+            Float64,
+            'thrust_cmd',
+            self.cmd_callback,
+            10
+        )
+
+        # Publish altitude measurement to controller
+        self.z_pub = self.create_publisher(
+            Float64,
+            'z_meas',
+            10
+        )
+
+        # 100 Hz timer to step the plant
+        self.timer = self.create_timer(self.DT, self.step)
+
+        self.get_logger().info("PlantNode started (1D vertical drone sim)")
+
+    def cmd_callback(self, msg: Float64):
+        """Receive normalized thrust command in [0,1]."""
+        self.cmd = float(np.clip(msg.data, 0.0, 1.0))
+
+    def step(self):
+        """Physics + sensor update at 100 Hz."""
+        # --- Convert command to physical thrust ---
+        # 1st order motor lag
+        alpha = self.DT / self.motor_tau
+        self.cmd_applied += alpha * (self.cmd - self.cmd_applied)
+        
+        # thrust
+        thrust = self.cmd_applied * self.MAX_THRUST  # N
+
+        # --- Vertical dynamics: z'' = (T - mg)/m - damping * z' ---
+        acc_z = (thrust - self.MASS * self.GRAVITY) / self.MASS - self.DAMP_Z * self.vel_z
+
+        self.vel_z += acc_z * self.DT
+        self.state[2] += self.vel_z * self.DT   # true z position
+
+        # --- Sensor: noisy, biased measurement of z ---
+        z_meas = self.state[2] \
+                 + np.random.normal(0.0, self.Z_NOISE_STD) \
+                 + self.Z_BIAS
+
+        # --- Publish measurement ---
+        msg = Float64()
+        msg.data = float(z_meas)
+        self.z_pub.publish(msg)
+
+        # Optional: debug prints
+        # self.get_logger().info(f"z_true={self.state[2]:.3f}, z_meas={z_meas:.3f}, cmd={self.cmd:.2f}")
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PlantNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

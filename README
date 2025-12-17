@@ -1,0 +1,218 @@
+# HIL Crazyflie-Style Altitude Control with Gazebo Harmonic (x3 UAV) + ROS 2
+
+This project connects a **Python PD controller** to the **x3 quadrotor model in Gazebo Harmonic** using ROS 2 and `ros_gz_bridge`.
+
+The loop is:
+
+> Gazebo x3 UAV → pose → `/z_meas` → Python controller → `/thrust_cmd` → motor speeds → Gazebo
+
+---
+
+## 1. Setup & Folder Layout
+
+Assumed:
+
+- OS: Ubuntu
+- Gazebo: Harmonic
+- ROS 2: `<YOUR_DISTRO>` (e.g. Humble, Jazzy)
+- Workspace: `~/ws/ros2`
+
+Package layout (simplified):
+
+text
+ws/ros2/
+└── src/
+    └── hil_crazyflie/
+        ├── hil_crazyflie/
+        │   ├── __init__.py
+        │   ├── ctrl.py
+        │   ├── pose_to_z_node.py
+        │   └── thrust_actuation.py
+        ├── launch/
+        │   └── quad_launcher.py
+        ├── setup.py
+        └── package.xml
+
+## 2. Build ROS2 Packages
+
+cd ~/ws/ros2
+colcon build --packages-select hil_crazyflie
+source install/setup.bash
+
+Sanity check:
+ros2 pkg list | grep hil_crazyflie
+
+You should see `hil_crazyflie` in the output
+
+## 3. Launch Gazebo with x3 UAV
+
+In terminal 1:
+gz sim 
+
+Sanity check:
+gz topic -l | grep -E "pose|motor"
+
+You should see at least:
+
+/world/quadcopter/pose/info
+/X3/gazebo/command/motor_speed
+
+
+If those aren’t there, the world/model isn’t the right one.
+
+## 4. Start ROS-Gazebo Bridge
+
+In Terminal 2:
+
+cd ~/ws/ros2
+source install/setup.bash
+
+ros2 run ros_gz_bridge parameter_bridge \
+  "/world/quadcopter/pose/info@geometry_msgs/msg/PoseArray@gz.msgs.Pose_V" \
+  "/X3/gazebo/command/motor_speed@actuator_msgs/msg/Actuators@gz.msgs.Actuators"
+
+
+This does:
+
+Gazebo → ROS 2: /world/quadcopter/pose/info as PoseArray
+
+ROS 2 → Gazebo: /X3/gazebo/command/motor_speed as Actuators
+
+Sanity checks:
+
+Bridge should not print any type-mismatch errors.
+
+In a new terminal (or here):
+
+ros2 topic list | grep pose
+ros2 topic list | grep motor_speed
+
+You should see:
+
+/world/quadcopter/pose/info
+/X3/gazebo/command/motor_speed
+
+Check type:
+
+ros2 topic info /world/quadcopter/pose/info
+
+Type should be geometry_msgs/msg/PoseArray.
+
+## 5. Start Pose >> z Adapter
+
+In Terminal 3:
+
+cd ~/ws/ros2
+source install/setup.bash
+
+python3 src/hil_crazyflie/hil_crazyflie/pose_to_z_node.py
+
+This node:
+
+- subscribes to /world/quadcopter/pose/info (PoseArray)
+
+- uses poses[1] as the x3 UAV pose
+
+- publishes altitude z to /z_meas (Float64)
+
+Sanity check:
+
+ros2 topic echo /z_meas
+
+- Move the drone slightly in Gazebo (or let the controller run later).
+
+- You should see data: ... change (small positive values when it rises).
+
+If /z_meas stays stuck at 0 while the drone moves, the pose index is wrong and you’d need to adjust the node (e.g. try poses[2] etc.). Right now index 1 works in this setup.
+
+## 6. Start Thrust >> Actuator Adapter
+
+In Terminal 4:
+
+cd ~/ws/ros2
+source install/setup.bash
+
+python3 src/hil_crazyflie/hil_crazyflie/thrust_actuation.py
+
+This node:
+
+- subscribes to /thrust_cmd (Float64, 0–1)
+
+- converts cmd into Actuators message:
+
+    -velocity = cmd * max_motor_speed for each of 4 motors
+
+    -(and optionally sets normalized too)
+
+- publishes to /X3/gazebo/command/motor_speed
+
+Quick manual thrust sanity test (no controller yet):
+
+In another terminal:
+
+cd ~/ws/ros2
+source install/setup.bash
+
+# Try a low thrust (repeat at ~10 Hz):
+ros2 topic pub /thrust_cmd std_msgs/Float64 "data: 0.2" -r 10
+
+Watch Gazebo:
+
+- If the drone does nothing / falls, 0.2 is below hover → try 0.3, 0.4, etc.
+
+- If it shoots up at 0.3, then either:
+
+    - max_motor_speed is too large in thrust_to_actuators.py, or
+
+    - 0.3 is already well above hover.
+
+Topic sanity check:
+
+ros2 topic echo /X3/gazebo/command/motor_speed
+
+You should see non-empty velocity: [ ..., ..., ..., ... ].
+
+## 7. Start Controller
+
+In Terminal 5:
+
+cd ~/ws/ros2
+source install/setup.bash
+
+python3 src/hil_crazyflie/hil_crazyflie/ctrl.py
+
+This node:
+
+- subscribes to /z_meas (Float64)
+
+- runs a PD controller with a ramped target altitude
+
+- publishes /thrust_cmd (Float64)
+
+- logs and plots z vs time
+
+Sanity checks:
+
+    1. Controller logs (in Terminal 5) should look like:
+
+    [CTRL] t= 0.25s  z= 0.05  vel_z= 0.20  cmd=0.42
+    [CTRL] t= 0.35s  z= 0.12  vel_z= 0.70  cmd=0.47
+    ...
+
+    - z should increase as the drone climbs.
+
+    - cmd should start high, then adjust as you approach the target altitude.
+
+    2. The graph window should show altitude vs time not stuck at 0.
+
+    3. In Gazebo:
+
+    - The x3 UAV should lift off and attempt to regulate height.
+
+    - If it just constantly rises:
+
+        - Check that z in controller logs is actually changing (if not → /z_meas is wrong).
+
+        - Otherwise, tune HOVER_CMD, Kp, Kd, max_motor_speed.
+
+---
