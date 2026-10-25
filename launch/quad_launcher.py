@@ -1,3 +1,4 @@
+from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import ExecuteProcess, SetEnvironmentVariable
 from launch_ros.actions import Node
@@ -14,10 +15,11 @@ def generate_launch_description():
         output='screen'
     )
 
-    controller_path = '/home/neefu/ws/ros2/src/hil_crazyflie/hil_crazyflie/ctrl.py'
-    pose_to_z_path = '/home/neefu/ws/ros2/src/hil_crazyflie/hil_crazyflie/pose_to_z_node.py'
-    pose_stabilizer_mixer_path = '/home/neefu/ws/ros2/src/hil_crazyflie/hil_crazyflie/mixer.py'
-    thrust_to_actuators_path = '/home/neefu/ws/ros2/src/hil_crazyflie/hil_crazyflie/thrust_actuator.py'
+    package_dir = Path(__file__).resolve().parent.parent
+    controller_path = str(package_dir / 'hil_crazyflie' / 'ctrl.py')
+    pose_to_z_path = str(package_dir / 'hil_crazyflie' / 'pose_to_z_node.py')
+    pose_stabilizer_mixer_path = str(package_dir / 'hil_crazyflie' / 'mixer.py')
+    thrust_to_actuators_path = str(package_dir / 'hil_crazyflie' / 'thrust_actuator.py')
 
     pose_to_z = ExecuteProcess(cmd=['python3', pose_to_z_path], output='screen')
     controller = ExecuteProcess(cmd=['python3', controller_path], output='screen')

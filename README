@@ -15,7 +15,7 @@ Assumed:
 - OS: Ubuntu
 - Gazebo: Harmonic
 - ROS 2: `<YOUR_DISTRO>` (e.g. Humble, Jazzy)
-- Workspace: `~/ws/ros2`
+- Workspace: `~/workspaces/robomaster`
 
 Package layout (simplified):
 
@@ -35,7 +35,7 @@ ws/ros2/
 
 ## 2. Build ROS2 Packages
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 colcon build --packages-select hil_crazyflie
 source install/setup.bash
 
@@ -64,7 +64,7 @@ If those aren’t there, the world/model isn’t the right one.
 
 In Terminal 2:
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 source install/setup.bash
 
 ros2 run ros_gz_bridge parameter_bridge \
@@ -102,7 +102,7 @@ Type should be geometry_msgs/msg/PoseArray.
 
 In Terminal 3:
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 source install/setup.bash
 
 python3 src/hil_crazyflie/hil_crazyflie/pose_to_z_node.py
@@ -129,7 +129,7 @@ If /z_meas stays stuck at 0 while the drone moves, the pose index is wrong and y
 
 In Terminal 4:
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 source install/setup.bash
 
 python3 src/hil_crazyflie/hil_crazyflie/thrust_actuation.py
@@ -150,7 +150,7 @@ Quick manual thrust sanity test (no controller yet):
 
 In another terminal:
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 source install/setup.bash
 
 # Try a low thrust (repeat at ~10 Hz):
@@ -176,7 +176,7 @@ You should see non-empty velocity: [ ..., ..., ..., ... ].
 
 In Terminal 5:
 
-cd ~/ws/ros2
+cd ~/workspaces/robomaster
 source install/setup.bash
 
 python3 src/hil_crazyflie/hil_crazyflie/ctrl.py
